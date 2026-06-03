@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Data — raw CSV (large, not needed for app)
+data/raw/
+
+# MLflow
+mlruns/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+# Gradio temp files
+gradio_cached_examples/
+*.pem

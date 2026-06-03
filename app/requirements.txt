@@ -1,0 +1,8 @@
+# HuggingFace Spaces requirements (lightweight — no EconML needed)
+# Heavy computations (HTE) are pre-computed and served from JSON files.
+
+scipy>=1.11.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+gradio>=4.20.0

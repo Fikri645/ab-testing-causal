@@ -29,7 +29,6 @@ from src.frequentist import (
     two_proportion_ztest, compute_power, required_sample_size,
 )
 from src.bayesian import bayesian_proportion_test
-from src.cuped import simulate_cuped_benefit
 
 # ── Load pre-computed results ─────────────────────────────────────────────────
 
@@ -41,10 +40,14 @@ def _load(path: Path):
         return None
 
 def _load_hte(path: Path):
-    """Load HTE JSON and immediately convert CATE lists to histograms."""
+    """
+    Load pre-processed HTE JSON (histograms already computed).
+    Falls back to the full hte_results.json and converts on-the-fly if needed.
+    """
     data = _load(path)
     if data is None:
         return None
+    # If the file still has raw CATE arrays (legacy), convert them now
     for outcome in ["conversion", "spend"]:
         if outcome not in data:
             continue
@@ -65,7 +68,10 @@ def _load_hte(path: Path):
 
 ANALYSIS = _load(ROOT / "data" / "processed" / "analysis_results.json")
 SEQ_SIM  = _load(ROOT / "data" / "processed" / "sequential_sim.json")
-HTE_DATA = _load_hte(ROOT / "data" / "processed" / "hte_results.json")
+# Use pre-processed lightweight file (23 KB vs 5.4 MB for hte_results.json)
+_hte_app_path = ROOT / "data" / "processed" / "hte_app.json"
+_hte_full_path = ROOT / "data" / "processed" / "hte_results.json"
+HTE_DATA = _load_hte(_hte_app_path if _hte_app_path.exists() else _hte_full_path)
 
 # ── Plotting helpers ──────────────────────────────────────────────────────────
 
@@ -105,6 +111,7 @@ def _new_fig(ncols=1, figsize=None, nrows=1):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def power_analysis(baseline_cvr: float, mde_pct: float, alpha: float, power_target: float):
+    plt.close("all")  # prevent memory leak
     mde = mde_pct / 100.0
     new_cvr = baseline_cvr + mde
     if new_cvr >= 1.0:
@@ -163,9 +170,13 @@ the {mde_pct:.1f}pp lift — if it truly exists — and only a {alpha*100:.0f}% 
 
 def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
                     alpha: float, corr_cuped: float):
-    # Safety checks
-    conv_a = min(conv_a, n_a)
-    conv_b = min(conv_b, n_b)
+    plt.close("all")  # prevent matplotlib memory leak
+
+    # Safety checks — guard against zero/negative inputs
+    n_a = max(int(n_a), 1)
+    n_b = max(int(n_b), 1)
+    conv_a = max(0, min(int(conv_a), n_a))
+    conv_b = max(0, min(int(conv_b), n_b))
     p_a = conv_a / n_a
     p_b = conv_b / n_b
 
@@ -174,13 +185,6 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 
     # ── Bayesian ──
     bayes = bayesian_proportion_test(n_a, conv_a, n_b, conv_b, n_samples=50_000)
-
-    # ── CUPED simulation (shows benefit at given correlation) ──
-    cuped_sim = simulate_cuped_benefit(
-        n_per_group=n_a, baseline_rate=p_a,
-        true_effect=max(p_b - p_a, 0.001),
-        corr=corr_cuped, n_sims=500, seed=42,
-    )
 
     # ── Figure 1: CVR bar chart + posterior ──
     fig1, (ax1, ax2) = _new_fig(ncols=2, figsize=(12, 5))
@@ -224,35 +228,60 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
     ax2.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
     plt.tight_layout()
 
-    # ── Figure 2: CUPED demo ──
-    corrs = [0.0, 0.2, 0.4, 0.6, 0.8, 0.95]
-    sims = [simulate_cuped_benefit(n_per_group=500, baseline_rate=p_a,
-                                    true_effect=max(p_b - p_a, 0.005),
-                                    corr=c, n_sims=300, seed=42)
-            for c in corrs]
-    raw_powers = [s["raw_power"] * 100 for s in sims]
-    cup_powers = [s["cuped_power"] * 100 for s in sims]
+    # ── Figure 2: CUPED theoretical power chart (instant — no simulation) ──
+    # Theoretical basis: CUPED reduces variance by (1 - ρ²), equivalent to
+    # having n_effective = n / (1 - ρ²) samples. Power improves accordingly.
+    corrs = np.linspace(0, 0.95, 40)
+    mde = abs(p_b - p_a) if abs(p_b - p_a) > 0.001 else 0.01
+    raw_power_val = compute_power(n_a, p_a, mde)
 
-    fig2, ax3 = _new_fig(figsize=(9, 5))
-    _style_ax(ax3, "CUPED Variance Reduction: Power Gain vs Pre-Post Correlation",
-              "Correlation between pre- and post-experiment metric (ρ)",
-              "Statistical power (%)")
-    ax3.plot(corrs, raw_powers, color=BLUE, linewidth=2.2, marker="o", label="Without CUPED")
-    ax3.plot(corrs, cup_powers, color=GREEN, linewidth=2.2, marker="o",
-             linestyle="--", label="With CUPED")
-    ax3.fill_between(corrs, raw_powers, cup_powers, alpha=0.15, color=GREEN,
-                     label="Power gain from CUPED")
-    ax3.axvline(corr_cuped, color=PURPLE_L, linestyle=":", alpha=0.7,
+    # Theoretical CUPED power: effective n scales as 1/(1-rho²)
+    cuped_powers_theory = [
+        compute_power(max(int(n_a / max(1 - c**2, 0.01)), 10), p_a, mde) * 100
+        for c in corrs
+    ]
+    raw_power_line = [raw_power_val * 100] * len(corrs)
+
+    # Variance reduction percentage
+    var_reduction_at_current = corr_cuped ** 2 * 100
+    n_savings_at_current = int(n_a * corr_cuped**2)
+
+    fig2, (ax3, ax4) = _new_fig(ncols=2, figsize=(12, 5))
+
+    # Left: Power gain curve
+    _style_ax(ax3, "CUPED Theoretical Power Gain",
+              "Pre-post metric correlation (ρ)", "Statistical power (%)")
+    ax3.plot(corrs, raw_power_line, color=BLUE, linewidth=2, linestyle="--",
+             label="Without CUPED")
+    ax3.plot(corrs, cuped_powers_theory, color=GREEN, linewidth=2.5,
+             label="With CUPED (theoretical)")
+    ax3.fill_between(corrs, raw_power_line, cuped_powers_theory,
+                     alpha=0.18, color=GREEN, label="Power gain")
+    ax3.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
                 label=f"Current ρ = {corr_cuped:.2f}")
     ax3.set_ylim(0, 108)
     ax3.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
+
+    # Right: Sample size savings
+    _style_ax(ax4, "Sample Size Savings from CUPED",
+              "Pre-post metric correlation (ρ)", "Sample size reduction (%)")
+    savings_pct = [c**2 * 100 for c in corrs]
+    ax4.plot(corrs, savings_pct, color=GREEN, linewidth=2.5)
+    ax4.fill_between(corrs, 0, savings_pct, alpha=0.18, color=GREEN)
+    ax4.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
+                label=f"ρ={corr_cuped:.2f} → save {var_reduction_at_current:.0f}%")
+    ax4.axhline(var_reduction_at_current, color=PURPLE_L, linestyle=":", alpha=0.6)
+    ax4.set_ylim(0, 105)
+    ax4.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
     plt.tight_layout()
 
     # ── Markdown summary ──
     sig_icon  = "✅" if freq.significant else "❌"
     bay_icon  = ("🟢 Deploy B" if bayes.prob_b_beats_a > 0.95
                  else ("🟡 Lean B" if bayes.prob_b_beats_a > 0.5 else "🔴 Keep A"))
-    cup_gain  = cuped_sim["cuped_power"] - cuped_sim["raw_power"]
+    cuped_power_at_rho = compute_power(
+        max(int(n_a / max(1 - corr_cuped**2, 0.01)), 10), p_a, mde
+    ) * 100
 
     results_md = f"""
 ## Results Summary
@@ -271,17 +300,17 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 
 ---
 
-### CUPED Variance Reduction (at ρ = {corr_cuped:.2f})
-| | Power |
-|:---|:---|
-| Without CUPED | {cuped_sim['raw_power']*100:.1f}% |
-| With CUPED | {cuped_sim['cuped_power']*100:.1f}% |
-| Sample size savings | ~{cuped_sim['theoretical_variance_reduction_pct']:.0f}% fewer users needed |
+### CUPED Variance Reduction (at ρ = {corr_cuped:.2f}) — Theoretical
+| Metric | Without CUPED | With CUPED |
+|:---|:---|:---|
+| Power | {raw_power_val*100:.1f}% | {cuped_power_at_rho:.1f}% |
+| Effective sample size | {n_a:,} | {min(int(n_a / max(1-corr_cuped**2, 0.01)), n_a*10):,} equivalent |
+| Sample size savings | — | ~{var_reduction_at_current:.0f}% ({n_savings_at_current:,} fewer users) |
 
-> **Why CUPED?** If you track each user's behavior *before* the experiment (e.g., last month's purchases),
-> you can subtract their "baseline noise" from the measured outcome. At ρ = {corr_cuped:.2f} correlation,
-> CUPED provides ~{cuped_sim['theoretical_variance_reduction_pct']:.0f}% variance reduction — meaning you need
-> {cuped_sim['theoretical_variance_reduction_pct']:.0f}% fewer users to achieve the same power.
+> **Why CUPED?** CUPED uses a *pre-experiment* metric (e.g., last month's purchases) to
+> remove user-level noise, reducing outcome variance by ρ². At ρ = {corr_cuped:.2f},
+> you could achieve the same power with **~{var_reduction_at_current:.0f}% fewer users**.
+> _(Theoretical: Deng et al. 2013, Microsoft KDD)_
 """
     return fig1, fig2, results_md
 
@@ -291,6 +320,7 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def sequential_testing():
+    plt.close("all")  # prevent memory leak
     if SEQ_SIM is None:
         return None, "Pre-computed sequential simulation not found.\nRun: python scripts/run_analysis.py"
 
@@ -401,6 +431,7 @@ _MODEL_MAP = {
 }
 
 def plot_hte(model_label: str, outcome_label: str):
+    plt.close("all")  # prevent memory leak
     if HTE_DATA is None:
         return None, "Pre-computed HTE results not found.\nRun: python scripts/run_hte.py"
 

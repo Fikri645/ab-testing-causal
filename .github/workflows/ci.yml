@@ -39,7 +39,7 @@ jobs:
 
       - name: Lint (flake8)
         run: |
-          flake8 src/ tests/ scripts/ --max-line-length=110 --ignore=E501,W503 --count
+          flake8 src/ tests/ scripts/ app/ --max-line-length=110 --ignore=E501,W503 --count
 
       - name: Run unit tests
         run: |

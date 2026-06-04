@@ -86,19 +86,20 @@ def run_hte_analysis(
     results: dict[str, np.ndarray] = {}
 
     # ── T-Learner ─────────────────────────────────────────────────────────────
-    if outcome_col == "conversion":
-        base_model = GradientBoostingClassifier(n_estimators=n_estimators,
-                                                max_depth=4, random_state=seed)
-    else:
-        base_model = GradientBoostingRegressor(n_estimators=n_estimators,
-                                               max_depth=4, random_state=seed)
+    # Each learner gets its OWN model instance — sharing causes cross-contamination.
+    def _make_base():
+        if outcome_col == "conversion":
+            return GradientBoostingClassifier(n_estimators=n_estimators,
+                                              max_depth=4, random_state=seed)
+        return GradientBoostingRegressor(n_estimators=n_estimators,
+                                         max_depth=4, random_state=seed)
 
-    t_learner = TLearner(models=base_model)
+    t_learner = TLearner(models=_make_base())
     t_learner.fit(Y, T, X=X)
     results["T-Learner"] = t_learner.effect(X).flatten()
 
     # ── X-Learner ─────────────────────────────────────────────────────────────
-    x_learner = XLearner(models=base_model)
+    x_learner = XLearner(models=_make_base())
     x_learner.fit(Y, T, X=X)
     results["X-Learner"] = x_learner.effect(X).flatten()
 

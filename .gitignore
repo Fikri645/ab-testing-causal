@@ -16,6 +16,9 @@ env/
 # Data — raw CSV (large, not needed for app)
 data/raw/
 
+# Large HTE results (full CATE arrays ~5.4 MB) — use hte_app.json instead
+data/processed/hte_results.json
+
 # MLflow
 mlruns/
 

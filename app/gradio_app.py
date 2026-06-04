@@ -560,7 +560,10 @@ used at companies like Netflix, Spotify, Microsoft, and Airbnb.
 — 64,000 customers, 3-arm RCT, 2008.
 """
 
-with gr.Blocks(title="A/B Testing & Causal Inference Simulator") as demo:
+with gr.Blocks(
+    title="A/B Testing & Causal Inference Simulator",
+    theme=gr.themes.Base(primary_hue="violet", secondary_hue="blue", neutral_hue="slate"),
+) as demo:
     gr.Markdown(_DESC)
 
     # ── TAB 1: Power Analysis ─────────────────────────────────────────────────
@@ -692,8 +695,4 @@ CausalForestDML (Athey & Wager 2019, via EconML)
 """)
 
 if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        theme=gr.themes.Base(primary_hue="violet", secondary_hue="blue", neutral_hue="slate"),
-    )
+    demo.launch(server_name="0.0.0.0", server_port=7860)

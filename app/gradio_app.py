@@ -417,7 +417,7 @@ def plot_hte(model_label: str, outcome_label: str):
     _style_ax(ax1, f"CATE Distribution — {model_label}  [{outcome_label}]",
               "Individual treatment effect (CATE)", "Count")
     if hist:
-        edges  = hist["bin_edges"]
+        edges  = hist["edges"]
         counts = hist["counts"]
         ctrs   = [(edges[i] + edges[i+1]) / 2 for i in range(len(edges) - 1)]
         widths = [(edges[i+1] - edges[i]) * 0.9 for i in range(len(edges) - 1)]

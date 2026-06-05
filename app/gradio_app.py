@@ -2,8 +2,8 @@
 A/B Testing & Causal Inference Simulator — Gradio App
 
 4-tab interactive dashboard:
-  Tab 1: Power Analysis         — sample size calculator + power curve
-  Tab 2: A/B Test Analyzer      — Frequentist vs Bayesian vs CUPED
+  Tab 1: Power Analysis         — sample size calculator + power curve + CUPED planning
+  Tab 2: A/B Test Analyzer      — Frequentist vs Bayesian
   Tab 3: Sequential Testing     — peeking problem + mSPRT solution (pre-computed)
   Tab 4: Uplift Modeling (HTE)  — heterogeneous treatment effects from Hillstrom
 
@@ -110,7 +110,7 @@ def _new_fig(ncols=1, figsize=None, nrows=1):
 # TAB 1: Power Analysis
 # ══════════════════════════════════════════════════════════════════════════════
 
-def power_analysis(baseline_cvr: float, mde_pct: float, alpha: float, power_target: float):
+def power_analysis(baseline_cvr: float, mde_pct: float, alpha: float, power_target: float, corr_cuped: float = 0.5):
     plt.close("all")  # prevent memory leak
     mde = mde_pct / 100.0
     new_cvr = baseline_cvr + mde
@@ -161,15 +161,66 @@ the {mde_pct:.1f}pp lift — if it truly exists — and only a {alpha*100:.0f}% 
 > **Practical tip:** Running fewer than {n_req//2:,} per group means you're more likely to *miss*
 > a real effect than to find it. Running more than {n_req*2:,} per group rarely helps.
 """
-    return fig, summary
+
+    # ── CUPED Planning Chart ──
+    corrs = np.linspace(0, 0.95, 40)
+    n_with_cuped = [max(1, int(n_req * (1 - c**2))) for c in corrs]
+    savings_pct  = [c**2 * 100 for c in corrs]
+
+    var_reduction  = corr_cuped ** 2 * 100
+    n_req_at_rho   = max(1, int(n_req * (1 - corr_cuped**2)))
+    n_saved_at_rho = n_req - n_req_at_rho
+
+    fig_cuped, (ax3, ax4) = _new_fig(ncols=2, figsize=(12, 5))
+
+    _style_ax(ax3, "CUPED: Required Users per Group vs Correlation",
+              "Pre-post metric correlation (ρ)", "Required users per group")
+    ax3.plot(corrs, [n_req] * len(corrs), color=BLUE, linewidth=2, linestyle="--",
+             label=f"Without CUPED ({n_req:,} users)")
+    ax3.plot(corrs, n_with_cuped, color=GREEN, linewidth=2.5, label="With CUPED")
+    ax3.fill_between(corrs, n_req, n_with_cuped, alpha=0.18, color=GREEN, label="Users saved")
+    ax3.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
+                label=f"ρ = {corr_cuped:.2f} → {n_req_at_rho:,} users")
+    ax3.scatter([corr_cuped], [n_req_at_rho], color=GREEN, s=90, zorder=6)
+    ax3.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
+
+    _style_ax(ax4, "Sample Size Savings from CUPED",
+              "Pre-post metric correlation (ρ)", "Sample size reduction (%)")
+    ax4.plot(corrs, savings_pct, color=GREEN, linewidth=2.5)
+    ax4.fill_between(corrs, 0, savings_pct, alpha=0.18, color=GREEN)
+    ax4.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
+                label=f"ρ={corr_cuped:.2f} → save {var_reduction:.0f}%")
+    ax4.axhline(var_reduction, color=PURPLE_L, linestyle=":", alpha=0.6)
+    ax4.set_ylim(0, 105)
+    ax4.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
+    plt.tight_layout()
+
+    summary += f"""
+---
+
+### CUPED Planning — Reduce Experiment Size with Historical Data
+
+*How many users do you need per group if you have a pre-experiment covariate with correlation ρ?*
+
+| | ❌ Without CUPED | ✅ With CUPED (ρ = {corr_cuped:.2f}) |
+|:---|---:|---:|
+| Users per group | **{n_req:,}** | **{n_req_at_rho:,}** |
+| Total users | **{n_req*2:,}** | **{n_req_at_rho*2:,}** |
+| Variance reduction | — | {var_reduction:.0f}% (ρ² = {corr_cuped**2:.2f}) |
+| Users saved per group | — | **{n_saved_at_rho:,} fewer ({var_reduction:.0f}%)** |
+
+> **How to get ρ:** Compute `df['pre_experiment_metric'].corr(df['outcome'])` on historical data before the experiment.
+> Typical values: past purchases → future purchases ≈ 0.5–0.7 · page views → conversion ≈ 0.3–0.4.
+> _(Deng et al. 2013, Microsoft KDD)_
+"""
+    return fig, fig_cuped, summary
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2: A/B Test Analyzer (Frequentist + Bayesian + CUPED demo)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
-                    alpha: float, corr_cuped: float):
+def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int, alpha: float):
     plt.close("all")  # prevent matplotlib memory leak
 
     # Safety checks — guard against zero/negative inputs
@@ -228,61 +279,10 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
     ax2.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
     plt.tight_layout()
 
-    # ── Figure 2: CUPED theoretical power chart (instant — no simulation) ──
-    # Theoretical basis: CUPED reduces variance by (1 - ρ²), equivalent to
-    # having n_effective = n / (1 - ρ²) samples. Power improves accordingly.
-    corrs = np.linspace(0, 0.95, 40)
-    mde = abs(p_b - p_a) if abs(p_b - p_a) > 0.001 else 0.01
-    raw_power_val = compute_power(n_a, p_a, mde)
-
-    # Theoretical CUPED power: effective n scales as 1/(1-rho²)
-    cuped_powers_theory = [
-        compute_power(max(int(n_a / max(1 - c**2, 0.01)), 10), p_a, mde) * 100
-        for c in corrs
-    ]
-    raw_power_line = [raw_power_val * 100] * len(corrs)
-
-    # Variance reduction percentage
-    var_reduction_at_current = corr_cuped ** 2 * 100
-    n_cuped_equiv = min(int(n_a / max(1 - corr_cuped**2, 0.01)), n_a * 10)
-    n_savings_at_current = n_cuped_equiv - int(n_a)
-
-    fig2, (ax3, ax4) = _new_fig(ncols=2, figsize=(12, 5))
-
-    # Left: Power gain curve
-    _style_ax(ax3, "CUPED Theoretical Power Gain",
-              "Pre-post metric correlation (ρ)", "Statistical power (%)")
-    ax3.plot(corrs, raw_power_line, color=BLUE, linewidth=2, linestyle="--",
-             label="Without CUPED")
-    ax3.plot(corrs, cuped_powers_theory, color=GREEN, linewidth=2.5,
-             label="With CUPED (theoretical)")
-    ax3.fill_between(corrs, raw_power_line, cuped_powers_theory,
-                     alpha=0.18, color=GREEN, label="Power gain")
-    ax3.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
-                label=f"Current ρ = {corr_cuped:.2f}")
-    ax3.set_ylim(0, 108)
-    ax3.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
-
-    # Right: Sample size savings
-    _style_ax(ax4, "Sample Size Savings from CUPED",
-              "Pre-post metric correlation (ρ)", "Sample size reduction (%)")
-    savings_pct = [c**2 * 100 for c in corrs]
-    ax4.plot(corrs, savings_pct, color=GREEN, linewidth=2.5)
-    ax4.fill_between(corrs, 0, savings_pct, alpha=0.18, color=GREEN)
-    ax4.axvline(corr_cuped, color=PURPLE_L, linestyle=":", linewidth=1.8,
-                label=f"ρ={corr_cuped:.2f} → save {var_reduction_at_current:.0f}%")
-    ax4.axhline(var_reduction_at_current, color=PURPLE_L, linestyle=":", alpha=0.6)
-    ax4.set_ylim(0, 105)
-    ax4.legend(facecolor=PANEL_BG, edgecolor=PURPLE_L, labelcolor=TEXT_WHITE, fontsize=9)
-    plt.tight_layout()
-
     # ── Markdown summary ──
     sig_icon  = "✅" if freq.significant else "❌"
     bay_icon  = ("🟢 Deploy B" if bayes.prob_b_beats_a > 0.95
                  else ("🟡 Lean B" if bayes.prob_b_beats_a > 0.5 else "🔴 Keep A"))
-    cuped_power_at_rho = compute_power(
-        max(int(n_a / max(1 - corr_cuped**2, 0.01)), 10), p_a, mde
-    ) * 100
 
     results_md = f"""
 ## Results Summary
@@ -298,27 +298,8 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 
 **Observed lift:** {conv_a:,}/{n_a:,} = {p_a:.2%} → {conv_b:,}/{n_b:,} = {p_b:.2%}
 (**{freq.observed_diff:+.4f}pp absolute**, {freq.relative_lift:+.1f}% relative)
-
----
-
-### CUPED Variance Reduction (at ρ = {corr_cuped:.2f}) — Theoretical
-
-*Question: how many users do you need to achieve the same statistical power?*
-
-| Metric | ❌ Without CUPED | ✅ With CUPED |
-|:---|---:|---:|
-| Users required (for this power) | **{n_cuped_equiv:,}** | **{int(n_a):,}** |
-| Outcome variance | 100% | {(1-corr_cuped**2)*100:.0f}% (−{var_reduction_at_current:.0f}%) |
-| Users saved | — | **{n_savings_at_current:,} fewer** ({var_reduction_at_current:.0f}% savings) |
-
-> **How to read this:** Without CUPED you would need **{n_cuped_equiv:,}** users to reach the
-> same power as this experiment. With CUPED, **{int(n_a):,}** users are enough — saving
-> **{n_savings_at_current:,} users ({var_reduction_at_current:.0f}%)**.
-> CUPED achieves this by using a pre-experiment metric (e.g., last month's purchases) to
-> remove user-level noise, shrinking outcome variance by ρ² = {corr_cuped**2:.2f}.
-> _(Deng et al. 2013, Microsoft KDD)_
 """
-    return fig1, fig2, results_md
+    return fig1, results_md
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -557,8 +538,8 @@ used at companies like Netflix, Spotify, Microsoft, and Airbnb.
 
 | Tab | Method | What it demonstrates |
 |:---|:---|:---|
-| 1 Power Analysis | Z-test power formula | Sample size planning |
-| 2 A/B Test Analyzer | Frequentist · Bayesian · CUPED | Multi-method comparison |
+| 1 Power Analysis | Z-test power formula + CUPED | Sample size planning (before experiment) |
+| 2 A/B Test Analyzer | Frequentist · Bayesian | Analyze results (after experiment) |
 | 3 Sequential Testing | mSPRT (Always-Valid Inference) | Safe continuous monitoring |
 | 4 Uplift Modeling | CausalForest · X-Learner · T-Learner | Heterogeneous treatment effects |
 
@@ -576,8 +557,8 @@ with gr.Blocks(
     with gr.Tab("1. Power Analysis"):
         gr.Markdown("""
 ### Sample Size & Power Calculator
-Compute the required experiment size before running your A/B test.
-A well-powered experiment is the foundation of valid inference.
+**Use this tab BEFORE running your experiment** to determine how many users you need.
+Includes CUPED planning — if you have historical data, see how many users you can save.
 """)
         with gr.Row():
             with gr.Column(scale=1):
@@ -589,28 +570,32 @@ A well-powered experiment is the foundation of valid inference.
                                        label="Significance level (α)")
                 t1_power = gr.Slider(0.70, 0.95, value=0.80, step=0.05,
                                      label="Target power (1 - β)")
+                gr.Markdown("#### CUPED Planning (optional)")
+                t1_corr = gr.Slider(0.0, 0.95, value=0.5, step=0.05,
+                                    label="Pre-post metric correlation (ρ) — set to 0 to ignore")
                 t1_btn = gr.Button("Calculate", variant="primary")
             with gr.Column(scale=2):
                 t1_plot = gr.Plot()
+        t1_plot2 = gr.Plot(label="CUPED Sample Size Planning")
         t1_md = gr.Markdown()
 
         t1_btn.click(
             fn=power_analysis,
-            inputs=[t1_baseline, t1_mde, t1_alpha, t1_power],
-            outputs=[t1_plot, t1_md],
+            inputs=[t1_baseline, t1_mde, t1_alpha, t1_power, t1_corr],
+            outputs=[t1_plot, t1_plot2, t1_md],
         )
         demo.load(
             fn=power_analysis,
-            inputs=[t1_baseline, t1_mde, t1_alpha, t1_power],
-            outputs=[t1_plot, t1_md],
+            inputs=[t1_baseline, t1_mde, t1_alpha, t1_power, t1_corr],
+            outputs=[t1_plot, t1_plot2, t1_md],
         )
 
     # ── TAB 2: A/B Test Analyzer ──────────────────────────────────────────────
     with gr.Tab("2. A/B Test Analyzer"):
         gr.Markdown("""
 ### Multi-Method A/B Test Analysis
-Enter observed results from any A/B test to compare **Frequentist**, **Bayesian**,
-and **CUPED** methods side-by-side.
+**Use this tab AFTER your experiment is complete** to analyze the results.
+Compares **Frequentist** (Z-test) and **Bayesian** (Beta-Binomial) interpretations side-by-side.
 """)
         with gr.Row():
             with gr.Column(scale=1):
@@ -622,23 +607,20 @@ and **CUPED** methods side-by-side.
                 t2_cb   = gr.Number(value=457,   label="Conversions in Treatment", precision=0)
                 t2_alpha = gr.Dropdown([0.01, 0.05, 0.10], value=0.05,
                                        label="Significance level (α)")
-                t2_corr = gr.Slider(0.0, 0.95, value=0.5, step=0.05,
-                                    label="Pre-post metric correlation (for CUPED demo, ρ)")
                 t2_btn  = gr.Button("Analyze", variant="primary")
             with gr.Column(scale=2):
                 t2_plot1 = gr.Plot(label="Conversion rates & Posteriors")
-        t2_plot2 = gr.Plot(label="CUPED Power Gain vs Correlation")
         t2_md    = gr.Markdown()
 
         t2_btn.click(
             fn=ab_test_analyze,
-            inputs=[t2_na, t2_ca, t2_nb, t2_cb, t2_alpha, t2_corr],
-            outputs=[t2_plot1, t2_plot2, t2_md],
+            inputs=[t2_na, t2_ca, t2_nb, t2_cb, t2_alpha],
+            outputs=[t2_plot1, t2_md],
         )
         demo.load(
             fn=ab_test_analyze,
-            inputs=[t2_na, t2_ca, t2_nb, t2_cb, t2_alpha, t2_corr],
-            outputs=[t2_plot1, t2_plot2, t2_md],
+            inputs=[t2_na, t2_ca, t2_nb, t2_cb, t2_alpha],
+            outputs=[t2_plot1, t2_md],
         )
 
     # ── TAB 3: Sequential Testing ─────────────────────────────────────────────

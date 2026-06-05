@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import gradio as gr
 from scipy import stats as sp_stats
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]  # NOTE: HF Space uses .parent (app.py at root)
 sys.path.insert(0, str(ROOT))
 
 from src.frequentist import (

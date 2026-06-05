@@ -32,7 +32,7 @@ from src.frequentist import (
     two_proportion_ztest, chi_square_test,
     two_sample_ttest, required_sample_size, power_curve,
 )
-from src.bayesian import bayesian_proportion_test, bayesian_mean_test
+from src.bayesian import bayesian_proportion_test
 from src.cuped import cuped_ttest, simulate_cuped_benefit
 from src.sequential import simulate_peeking, simulate_detection_speed
 
@@ -46,7 +46,7 @@ def download_hillstrom() -> pd.DataFrame:
     if HILLSTROM_RAW.exists():
         print(f"[data] Using cached {HILLSTROM_RAW}")
     else:
-        print(f"[data] Downloading Hillstrom dataset …")
+        print("[data] Downloading Hillstrom dataset …")
         try:
             headers = {"User-Agent": "Mozilla/5.0"}
             req = urllib.request.Request(HILLSTROM_URL, headers=headers)

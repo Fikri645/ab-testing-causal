@@ -1,6 +1,4 @@
 """Unit tests for Bayesian A/B testing functions."""
-import pytest
-import numpy as np
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))

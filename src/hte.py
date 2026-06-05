@@ -18,7 +18,6 @@ import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Optional
 
 
 FEATURE_COLS = ["recency", "history", "mens", "womens", "newbie",
@@ -71,8 +70,6 @@ def run_hte_analysis(
         from econml.metalearners import TLearner, XLearner
         from econml.dml import CausalForestDML
         from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.preprocessing import StandardScaler
     except ImportError as e:
         raise ImportError(f"Install econml and scikit-learn: {e}")
 

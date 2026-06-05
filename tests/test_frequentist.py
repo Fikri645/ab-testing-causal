@@ -1,12 +1,11 @@
 """Unit tests for frequentist A/B testing functions."""
 import pytest
-import numpy as np
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from src.frequentist import (
-    two_proportion_ztest, two_sample_ttest, chi_square_test,
+    two_proportion_ztest, two_sample_ttest,
     compute_power, required_sample_size, fdr_correction,
 )
 
@@ -28,7 +27,6 @@ class TestTwoProportionZtest:
 
     def test_ci_contains_true_effect(self):
         """95% CI should cover the true difference for a large sample."""
-        true_diff = 0.05
         result = two_proportion_ztest(n_a=50000, conv_a=5000,
                                       n_b=50000, conv_b=7500, alpha=0.05)
         # True CVR: 0.10 vs 0.15, diff = 0.05

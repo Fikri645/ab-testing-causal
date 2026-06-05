@@ -15,7 +15,7 @@ when M_t ≥ 1/α — valid at *any* stopping time, with E[false positives] ≤ 
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import List, Optional
 
 

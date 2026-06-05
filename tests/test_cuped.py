@@ -1,5 +1,4 @@
 """Unit tests for CUPED variance reduction."""
-import pytest
 import numpy as np
 import pandas as pd
 import sys

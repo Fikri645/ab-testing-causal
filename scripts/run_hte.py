@@ -11,7 +11,7 @@ Saves CATE estimates and segment summaries to data/processed/hte_results.json
 Usage:
     C:/Users/fikri/AppData/Local/Programs/Python/Python311/python.exe scripts/run_hte.py
 """
-import sys, json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ import pandas as pd
 import mlflow
 
 from src.config import (
-    DATA_RAW, DATA_PROCESSED,
+    DATA_PROCESSED,
     HILLSTROM_RAW, HTE_RESULTS,
     SEED, HTE_N_ESTIMATORS,
 )

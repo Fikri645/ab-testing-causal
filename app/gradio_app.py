@@ -583,6 +583,7 @@ Includes CUPED planning — if you have historical data, see how many users you 
             fn=power_analysis,
             inputs=[t1_baseline, t1_mde, t1_alpha, t1_power, t1_corr],
             outputs=[t1_plot, t1_plot2, t1_md],
+            scroll_to_output=False,
         )
         demo.load(
             fn=power_analysis,
@@ -616,6 +617,7 @@ Compares **Frequentist** (Z-test) and **Bayesian** (Beta-Binomial) interpretatio
             fn=ab_test_analyze,
             inputs=[t2_na, t2_ca, t2_nb, t2_cb, t2_alpha],
             outputs=[t2_plot1, t2_md],
+            scroll_to_output=False,
         )
         demo.load(
             fn=ab_test_analyze,
@@ -667,6 +669,7 @@ individual treatment effect (CATE) using three ML-based causal estimators from
             fn=plot_hte,
             inputs=[t4_model, t4_outcome],
             outputs=[t4_plot, t4_md],
+            scroll_to_output=False,
         )
         demo.load(
             fn=plot_hte,

@@ -244,7 +244,8 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 
     # Variance reduction percentage
     var_reduction_at_current = corr_cuped ** 2 * 100
-    n_savings_at_current = int(n_a * corr_cuped**2)
+    n_cuped_equiv = min(int(n_a / max(1 - corr_cuped**2, 0.01)), n_a * 10)
+    n_savings_at_current = n_cuped_equiv - int(n_a)
 
     fig2, (ax3, ax4) = _new_fig(ncols=2, figsize=(12, 5))
 
@@ -301,16 +302,21 @@ def ab_test_analyze(n_a: int, conv_a: int, n_b: int, conv_b: int,
 ---
 
 ### CUPED Variance Reduction (at ρ = {corr_cuped:.2f}) — Theoretical
-| Metric | Without CUPED | With CUPED |
-|:---|:---|:---|
-| Power | {raw_power_val*100:.1f}% | {cuped_power_at_rho:.1f}% |
-| Effective sample size | {n_a:,} | {min(int(n_a / max(1-corr_cuped**2, 0.01)), n_a*10):,} equivalent |
-| Sample size savings | — | ~{var_reduction_at_current:.0f}% ({n_savings_at_current:,} fewer users) |
 
-> **Why CUPED?** CUPED uses a *pre-experiment* metric (e.g., last month's purchases) to
-> remove user-level noise, reducing outcome variance by ρ². At ρ = {corr_cuped:.2f},
-> you could achieve the same power with **~{var_reduction_at_current:.0f}% fewer users**.
-> _(Theoretical: Deng et al. 2013, Microsoft KDD)_
+*Question: how many users do you need to achieve the same statistical power?*
+
+| Metric | ❌ Without CUPED | ✅ With CUPED |
+|:---|---:|---:|
+| Users required (for this power) | **{n_cuped_equiv:,}** | **{int(n_a):,}** |
+| Outcome variance | 100% | {(1-corr_cuped**2)*100:.0f}% (−{var_reduction_at_current:.0f}%) |
+| Users saved | — | **{n_savings_at_current:,} fewer** ({var_reduction_at_current:.0f}% savings) |
+
+> **How to read this:** Without CUPED you would need **{n_cuped_equiv:,}** users to reach the
+> same power as this experiment. With CUPED, **{int(n_a):,}** users are enough — saving
+> **{n_savings_at_current:,} users ({var_reduction_at_current:.0f}%)**.
+> CUPED achieves this by using a pre-experiment metric (e.g., last month's purchases) to
+> remove user-level noise, shrinking outcome variance by ρ² = {corr_cuped**2:.2f}.
+> _(Deng et al. 2013, Microsoft KDD)_
 """
     return fig1, fig2, results_md
 

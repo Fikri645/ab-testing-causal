@@ -443,7 +443,7 @@ def plot_hte(model_label: str, outcome_label: str):
         ax1.bar(ctrs, counts, width=widths, color=bar_colors, alpha=0.75)
         ate = hist.get("mean", 0.0)
         ax1.axvline(0,   color=TEXT_WHITE, linestyle=":", alpha=0.4, linewidth=1.5)
-        ax1.axvline(ate, color=GREEN,      linestyle="-",  linewidth=2.0,
+        ax1.axvline(ate, color="#fbbf24",  linestyle="--", linewidth=2.2,
                     label=f"ATE = {ate:.5f}")
         pct_pos = hist.get("pct_positive", 0)
         ax1.set_title(f"CATE Distribution  |  {pct_pos:.1f}% users benefit",
